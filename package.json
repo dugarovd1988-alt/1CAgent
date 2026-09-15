@@ -6,8 +6,9 @@
     "dev": "concurrently \"npm:server\" \"npm:client\"",
     "client": "vite",
     "server:build": "tsc server/index.ts --outDir server-dist --target ES2022 --module NodeNext --moduleResolution NodeNext --esModuleInterop --skipLibCheck",
-    "server": "npm run server:build && node server-dist/index.js",
-    "db:init": "npm run server:build && node server-dist/index.js --init-only",
+    "server": "npm run server:build && node --use-env-proxy --use-system-ca server-dist/server/index.js",
+    "db:init": "npm run server:build && node server-dist/server/index.js --init-only",
+    "test": "tsc server/oneCAdapter.test.ts --outDir test-dist --target ES2022 --module NodeNext --moduleResolution NodeNext --esModuleInterop --skipLibCheck && node --test test-dist/server/oneCAdapter.test.js",
     "build": "vite build",
     "preview": "vite preview"
   },

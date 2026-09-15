@@ -102,7 +102,7 @@ export default function Journal({ entries, onOpen, onDelete, onCreateNew }: Jour
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 outline-none transition-all focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
           >
             <option value="all">Все статусы ({statusCounts.all})</option>
-            <option value="success">Создан ({statusCounts.success})</option>
+            <option value="success">Проверен / создан ({statusCounts.success})</option>
             <option value="error">Ошибка ({statusCounts.error})</option>
             <option value="clarification">На уточнении ({statusCounts.clarification})</option>
           </select>
@@ -150,7 +150,7 @@ export default function Journal({ entries, onOpen, onDelete, onCreateNew }: Jour
                 <span className="font-mono text-xs font-semibold text-slate-500">
                   {formatRequestNumber(entry.number)}
                 </span>
-                <StatusBadge status={entry.status} />
+                <StatusBadge status={entry.status} stage={entry.stage} />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-slate-900">
                     {entry.docType ?? 'Документ не создан'}

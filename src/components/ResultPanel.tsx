@@ -23,6 +23,7 @@ interface ResultPanelProps {
   entry: JournalEntry | null
   requestNumber: number
   onClarified: (requester: Requester) => void
+  onCreate?: () => void
 }
 
 function StateShell({
@@ -65,7 +66,7 @@ function RequestNumberChip({ number }: { number: number }) {
   )
 }
 
-function SuccessCard({ entry }: { entry: JournalEntry | null }) {
+function SuccessCard({ entry, onCreate }: { entry: JournalEntry | null; onCreate?: () => void }) {
   const rows = [
     {
       icon: <FileSpreadsheet className="h-4 w-4 text-slate-400" />,
@@ -74,8 +75,8 @@ function SuccessCard({ entry }: { entry: JournalEntry | null }) {
     },
     {
       icon: <Hash className="h-4 w-4 text-slate-400" />,
-      label: 'Номер документа в 1С',
-      value: entry?.docNumber ?? '00-00012437',
+      label: 'Номер демо-документа',
+      value: entry?.docNumber ?? 'Будет присвоен после подтверждения',
       mono: true,
     },
     {
@@ -107,14 +108,27 @@ function SuccessCard({ entry }: { entry: JournalEntry | null }) {
           </div>
         ))}
       </dl>
-      <a
-        href="#"
-        onClick={(e) => e.preventDefault()}
-        className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+      {entry?.draft && (
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Извлечённые позиции</p>
+          <ul className="mt-2 space-y-2 text-sm text-slate-700">
+            {entry.draft.items.map((item, index) => (
+              <li key={`${item.name}-${index}`} className="rounded-lg bg-slate-50 px-3 py-2">
+                {item.name || 'Без наименования'} — {item.quantity ?? '—'} × {item.price ?? '—'} = {item.amount ?? '—'} руб.
+              </li>
+            ))}
+          </ul>
+          {!!entry.validation?.warnings.length && <p className="mt-3 text-xs text-amber-700">{entry.validation.warnings.join('; ')}</p>}
+        </div>
+      )}
+      <button
+        onClick={onCreate}
+        disabled={!onCreate || !!entry?.docNumber}
+        className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
       >
         <ExternalLink className="h-4 w-4" />
-        Открыть в 1С
-      </a>
+        {entry?.docNumber ? 'Демо-документ создан' : 'Подтвердить и создать демо-документ'}
+      </button>
     </div>
   )
 }
@@ -131,6 +145,12 @@ function ErrorList({ entry }: { entry: JournalEntry | null }) {
         <li key={issue} className="flex items-start gap-2.5 text-sm text-slate-700">
           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
           {issue}
+        </li>
+      ))}
+      {entry?.validation?.warnings.map((warning) => (
+        <li key={warning} className="flex items-start gap-2.5 text-sm text-amber-800">
+          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+          Предупреждение: {warning}
         </li>
       ))}
     </ul>
@@ -217,7 +237,7 @@ function ClarificationCard({ requester }: { requester: Requester | null }) {
   )
 }
 
-export default function ResultPanel({ state, entry, requestNumber, onClarified }: ResultPanelProps) {
+export default function ResultPanel({ state, entry, requestNumber, onClarified, onCreate }: ResultPanelProps) {
   const showNumber = requestNumber > 0 && state !== 'idle'
 
   return (
@@ -236,7 +256,7 @@ export default function ResultPanel({ state, entry, requestNumber, onClarified }
             title="Ожидание ввода данных"
           >
             <p className="mt-1.5 max-w-xs text-sm text-slate-500">
-              Вставьте текст письма слева и нажмите «Обработать», чтобы ИИ создал документ в 1С.
+              Вставьте текст письма слева: ИИ подготовит черновик, а создание потребует подтверждения.
             </p>
           </StateShell>
         )}
@@ -255,9 +275,9 @@ export default function ResultPanel({ state, entry, requestNumber, onClarified }
           <StateShell
             tone="success"
             icon={<CheckCircle2 className="h-7 w-7" />}
-            title="Документ успешно создан в 1С"
+            title={entry?.docNumber ? 'Демо-документ создан' : 'Черновик проверен'}
           >
-            <SuccessCard entry={entry} />
+            <SuccessCard entry={entry} onCreate={onCreate} />
           </StateShell>
         )}
 

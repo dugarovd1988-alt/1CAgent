@@ -1,3 +1,5 @@
+import type { ProcessingStage, ReceiptDraft, ValidationResult } from '../../shared/receipt'
+
 export type JournalStatus = 'success' | 'error' | 'clarification'
 
 export interface Requester {
@@ -34,6 +36,10 @@ export interface JournalEntry {
   source: string
   logs: LogEntry[]
   comments?: Comment[]
+  draft?: ReceiptDraft
+  validation?: ValidationResult
+  stage?: ProcessingStage
+  demoDocumentId?: string
 }
 
 export const CURRENT_USER = { name: 'Анна Смирнова', role: 'Бухгалтер' }

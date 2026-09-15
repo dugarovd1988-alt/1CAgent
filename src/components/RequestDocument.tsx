@@ -1,4 +1,4 @@
-import { ArrowLeft, ExternalLink, FileText, RotateCcw, Trash2 } from 'lucide-react'
+import { ArrowLeft, FileText, RotateCcw, Trash2 } from 'lucide-react'
 import ResultPanel, { type ResultState } from './ResultPanel'
 import Logs from './Logs'
 import Comments from './Comments'
@@ -21,6 +21,7 @@ interface RequestDocumentProps {
   onAddComment: (text: string) => void
   onBack: () => void
   onDelete: (id: string) => void
+  onCreate?: () => void
 }
 
 export default function RequestDocument({
@@ -33,6 +34,7 @@ export default function RequestDocument({
   onAddComment,
   onBack,
   onDelete,
+  onCreate,
 }: RequestDocumentProps) {
   const panelState: ResultState = processing ? 'loading' : entry.status
   const dirty = text.trim().length > 0 && text !== entry.source
@@ -54,18 +56,9 @@ export default function RequestDocument({
           <h2 className="text-sm font-semibold text-slate-800">
             Запрос {formatRequestNumber(entry.number)}
           </h2>
-          <StatusBadge status={entry.status} />
+          <StatusBadge status={entry.status} stage={entry.stage} />
           <div className="ml-auto flex items-center gap-2">
-            {entry.status === 'success' && entry.docNumber && (
-              <a
-                href="#"
-                onClick={(e) => e.preventDefault()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                Открыть в 1С
-              </a>
-            )}
+            {entry.stage === 'created' && <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">Создано в демо-адаптере</span>}
             <button
               onClick={onReprocess}
               disabled={!dirty || processing}
@@ -91,7 +84,7 @@ export default function RequestDocument({
           <Field label="Оператор" value={entry.user} />
           <Field label="Контрагент" value={entry.counterparty ?? '—'} />
           <Field label="Сумма" value={entry.amount ?? '—'} />
-          <Field label="Документ в 1С" value={entry.docNumber ?? '—'} mono />
+          <Field label="Демо-документ" value={entry.docNumber ?? '—'} mono />
           <Field
             label="Обновлён"
             value={entry.updatedAt ? formatDateTime(entry.updatedAt) : formatDateTime(entry.createdAt)}
@@ -111,7 +104,7 @@ export default function RequestDocument({
             />
             <p className="mt-2 text-xs text-slate-400">
               {dirty
-                ? 'Текст изменён — нажмите «Обработать повторно», чтобы пересоздать документ.'
+                ? 'Текст изменён — нажмите «Обработать повторно», чтобы заново проверить черновик.'
                 : 'Уточните текст запроса (например, добавьте ИНН), чтобы обработать его повторно.'}
             </p>
           </div>
@@ -126,6 +119,7 @@ export default function RequestDocument({
                 entry={entry}
                 requestNumber={entry.number}
                 onClarified={onClarified}
+                onCreate={onCreate}
               />
             </div>
           </div>

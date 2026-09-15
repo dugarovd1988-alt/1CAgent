@@ -6,12 +6,10 @@ import Journal from './components/Journal'
 import AdminPanel from './components/AdminPanel'
 import {
   CURRENT_USER,
-  createEntry,
+  formatRequestNumber,
   initialsOf,
   loadEntries,
   nextNumber,
-  reprocessEntry,
-  saveEntries,
   newId,
   type Comment,
   type JournalEntry,
@@ -20,6 +18,14 @@ import {
 } from './lib/journal'
 
 type Tab = 'new' | 'journal'
+
+async function readApiResponse(response: Response): Promise<any> {
+  const body = await response.text()
+  let data: any
+  try { data = body ? JSON.parse(body) : {} } catch { throw new Error(response.status === 503 ? 'Backend 1С/GigaChat недоступен. Запустите npm run dev и обновите страницу.' : `API вернуло не JSON (HTTP ${response.status})`) }
+  if (!response.ok) throw new Error(data.error || `Ошибка API (HTTP ${response.status})`)
+  return data
+}
 
 export default function App() {
   const [user, setUser] = useState<{id:string;email:string;name:string;role:string}|null>(null)
@@ -34,51 +40,50 @@ export default function App() {
   const [text, setText] = useState('')
   const [processing, setProcessing] = useState(false)
   const [nextReqNumber, setNextReqNumber] = useState(1)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const entriesRef = useRef<JournalEntry[]>([])
 
   useEffect(() => { fetch('/api/auth/me').then(r=>r.ok?r.json():Promise.reject()).then(x=>setUser(x.user)).catch(()=>{}).finally(()=>setAuthLoading(false)) }, [])
   useEffect(() => { if(!user)return; fetch('/api/journal').then(r=>r.json()).then(x=>{setEntries(x.entries);entriesRef.current=x.entries;setNextReqNumber(nextNumber(x.entries))}) }, [user])
 
   const persist = async (next: JournalEntry[]) => {
+    const previous = entriesRef.current
     entriesRef.current = next
     setEntries(next)
     setNextReqNumber(nextNumber(next))
-    const previous = entriesRef.current
     const changed = next.find(e=>!previous.some(p=>p.id===e.id))
-    if(changed) await fetch('/api/journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(changed)})
-    else { const updated=next.find(e=>previous.find(p=>p.id===e.id&&JSON.stringify(p)!==JSON.stringify(e))); if(updated) await fetch('/api/journal/'+updated.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)}) }
+    const updated = next.find(e=>previous.find(p=>p.id===e.id&&JSON.stringify(p)!==JSON.stringify(e)))
+    const response = changed
+      ? await fetch('/api/journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(changed)})
+      : updated ? await fetch('/api/journal/'+updated.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)}) : null
+    if (response && !response.ok) throw new Error((await readApiResponse(response)).error || 'Не удалось сохранить журнал')
   }
 
   const openEntry = entries.find((e) => e.id === openId) ?? null
 
   /* ---------- Обработка ---------- */
 
-  const processNew = () => {
+  const processNew = async () => {
     if (!text.trim() || processing) return
-    if (timer.current) clearTimeout(timer.current)
     setProcessing(true)
-    timer.current = setTimeout(() => {
+    try {
+      const response = await fetch('/api/documents/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})})
+      const result = await readApiResponse(response)
       const number = nextNumber(entriesRef.current)
-      const resultState: 'success' | 'error' = /инн\s*\d{9,12}/i.test(text) ? 'success' : 'error'
-      const entry = createEntry(text, resultState, number, CURRENT_USER.name)
-      void persist([entry, ...entriesRef.current])
+      const issues: string[] = result.validation.errors
+      const now = Date.now()
+      const entry: JournalEntry = { id:newId(), number, createdAt:now, status:issues.length?'error':'success', stage:issues.length?'requires_clarification':'ready_to_create', user:user?.name||CURRENT_USER.name, source:text, draft:result.draft, validation:result.validation, docType:result.draft.documentType, counterparty:result.validation.counterparty?.name || result.draft.counterparty.name || undefined, amount:result.draft.totalAmount ? `${result.draft.totalAmount.toLocaleString('ru-RU')} руб.` : undefined, issues, logs:[{time:now,text:`Запрос ${formatRequestNumber(number)} зарегистрирован`},{time:now,text:'Реквизиты извлечены через GigaChat'},{time:now,text:issues.length?'Черновик требует уточнения данных':'Черновик проверен и готов к подтверждению'}]}
+      await persist([entry, ...entriesRef.current])
       setText(entry.source)
       setProcessing(false)
       setOpenId(entry.id)
       setTab('journal')
-    }, 1800)
+    } catch(e) { setProcessing(false); window.alert(e instanceof Error ? e.message : 'Ошибка обработки') }
   }
 
   const reprocessOpen = () => {
     if (!openEntry || !text.trim() || processing) return
-    if (timer.current) clearTimeout(timer.current)
     setProcessing(true)
-    timer.current = setTimeout(() => {
-      const updated = reprocessEntry(text, openEntry, CURRENT_USER.name)
-      void persist(entriesRef.current.map((e) => (e.id === updated.id ? updated : e)))
-      setProcessing(false)
-    }, 1600)
+    void fetch('/api/documents/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}).then(async r=>{const x=await readApiResponse(r);const issues:string[]=x.validation.errors;const updated:JournalEntry={...openEntry,source:text,draft:x.draft,validation:x.validation,status:issues.length?'error':'success',stage:issues.length?'requires_clarification':'ready_to_create',docNumber:undefined,demoDocumentId:undefined,issues,counterparty:x.validation.counterparty?.name||x.draft.counterparty.name||undefined,amount:x.draft.totalAmount?`${x.draft.totalAmount.toLocaleString('ru-RU')} руб.`:undefined,updatedAt:Date.now(),logs:[...openEntry.logs,{time:Date.now(),text:issues.length?'Повторная проверка: нужны уточнения':'Повторная проверка: черновик готов к подтверждению'}]};await persist(entriesRef.current.map(e=>e.id===updated.id?updated:e));setProcessing(false)}).catch(e=>{window.alert(e instanceof Error?e.message:'Ошибка обработки');setProcessing(false)})
   }
 
   /* ---------- Действия с запросом ---------- */
@@ -94,6 +99,7 @@ export default function App() {
     const updated: JournalEntry = {
       ...openEntry,
       status: 'clarification',
+      stage: 'requires_clarification',
       requester,
       updatedAt: now,
       logs: [...openEntry.logs, ...newLogs],
@@ -104,6 +110,16 @@ export default function App() {
   const handleDelete = (id: string) => {
     void fetch('/api/journal/'+id,{method:'DELETE'}); void persist(entriesRef.current.filter((e) => e.id !== id))
     if (openId === id) setOpenId(null)
+  }
+
+  const createOpen = async () => {
+    if (!openEntry?.draft || openEntry.docNumber || openEntry.stage !== 'ready_to_create') return
+    try {
+      const r = await fetch('/api/documents/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:openEntry.id,draft:openEntry.draft})})
+      const x = await readApiResponse(r)
+      const updated:JournalEntry={...openEntry,status:'success',stage:'created',docNumber:x.docNumber,demoDocumentId:x.id,updatedAt:Date.now(),logs:[...openEntry.logs,{time:Date.now(),text:`Демо-документ «Поступление товаров и услуг» создан, номер ${x.docNumber}`}]}
+      await persist(entriesRef.current.map(e=>e.id===updated.id?updated:e))
+    } catch (e) { window.alert(e instanceof Error ? e.message : 'Ошибка создания документа') }
   }
 
   const handleAddComment = (commentText: string) => {
@@ -185,7 +201,7 @@ export default function App() {
               {user.role === 'admin' && <button onClick={()=>{setAdminOpen(true);setOpenId(null)}} className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${adminOpen ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:bg-white/70 hover:text-slate-900'}`}>Пользователи</button>}
             </nav>
             <span className="hidden rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 lg:inline">
-              Подключено к 1С ERP
+              Демо-адаптер 1С
             </span>
             <div className="flex items-center gap-2.5 border-l border-slate-200 pl-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
@@ -222,6 +238,7 @@ export default function App() {
               onAddComment={handleAddComment}
               onBack={goJournal}
               onDelete={handleDelete}
+              onCreate={createOpen}
             />
           </>
         ) : tab === 'journal' ? (

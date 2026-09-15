@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, Inbox } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { initialsOf, type JournalStatus } from '../lib/journal'
+import type { ProcessingStage } from '../../shared/receipt'
 
 const META: Record<JournalStatus, { label: string; cls: string; icon: ReactNode }> = {
   success: {
@@ -20,8 +21,12 @@ const META: Record<JournalStatus, { label: string; cls: string; icon: ReactNode 
   },
 }
 
-export function StatusBadge({ status }: { status: JournalStatus }) {
-  const meta = META[status]
+export function StatusBadge({ status, stage }: { status: JournalStatus; stage?: ProcessingStage }) {
+  const meta = stage === 'ready_to_create'
+    ? { label: 'Проверен', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200', icon: <CheckCircle2 className="h-3.5 w-3.5" /> }
+    : stage === 'created'
+      ? { label: 'Демо создан', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200', icon: <CheckCircle2 className="h-3.5 w-3.5" /> }
+      : META[status]
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${meta.cls}`}
