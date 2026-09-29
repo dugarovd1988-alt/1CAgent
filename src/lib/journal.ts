@@ -44,12 +44,6 @@ export interface JournalEntry {
 
 export const CURRENT_USER = { name: 'Анна Смирнова', role: 'Бухгалтер' }
 
-export const USERS: { name: string; role: string }[] = [
-  CURRENT_USER,
-  { name: 'Дмитрий Орлов', role: 'Бухгалтер' },
-  { name: 'Елена Кузнецова', role: 'Старший бухгалтер' },
-]
-
 export const REQUESTERS: Requester[] = [
   { name: 'Мария Иванова', email: 'm.ivanova@romashka.ru', org: 'ООО «Ромашка»' },
   { name: 'Сергей Петров', email: 's.petrov@vektor.ru', org: 'ООО «Вектор»' },

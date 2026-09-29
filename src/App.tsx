@@ -16,16 +16,9 @@ import {
   type LogEntry,
   type Requester,
 } from './lib/journal'
+import { api } from './lib/api'
 
 type Tab = 'new' | 'journal'
-
-async function readApiResponse(response: Response): Promise<any> {
-  const body = await response.text()
-  let data: any
-  try { data = body ? JSON.parse(body) : {} } catch { throw new Error(response.status === 503 ? 'Backend 1С/GigaChat недоступен. Запустите npm run dev и обновите страницу.' : `API вернуло не JSON (HTTP ${response.status})`) }
-  if (!response.ok) throw new Error(data.error || `Ошибка API (HTTP ${response.status})`)
-  return data
-}
 
 export default function App() {
   const [user, setUser] = useState<{id:string;email:string;name:string;role:string}|null>(null)
@@ -42,8 +35,8 @@ export default function App() {
   const [nextReqNumber, setNextReqNumber] = useState(1)
   const entriesRef = useRef<JournalEntry[]>([])
 
-  useEffect(() => { fetch('/api/auth/me').then(r=>r.ok?r.json():Promise.reject()).then(x=>setUser(x.user)).catch(()=>{}).finally(()=>setAuthLoading(false)) }, [])
-  useEffect(() => { if(!user)return; fetch('/api/journal').then(r=>r.json()).then(x=>{setEntries(x.entries);entriesRef.current=x.entries;setNextReqNumber(nextNumber(x.entries))}) }, [user])
+  useEffect(() => { api.auth.me().then(x=>setUser(x.user as any)).catch(()=>{}).finally(()=>setAuthLoading(false)) }, [])
+  useEffect(() => { if(!user)return; api.journal.list().then(x=>{const e=x.entries as JournalEntry[];setEntries(e);entriesRef.current=e;setNextReqNumber(nextNumber(e))}) }, [user])
 
   const persist = async (next: JournalEntry[]) => {
     const previous = entriesRef.current
@@ -53,9 +46,9 @@ export default function App() {
     const changed = next.find(e=>!previous.some(p=>p.id===e.id))
     const updated = next.find(e=>previous.find(p=>p.id===e.id&&JSON.stringify(p)!==JSON.stringify(e)))
     const response = changed
-      ? await fetch('/api/journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(changed)})
-      : updated ? await fetch('/api/journal/'+updated.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)}) : null
-    if (response && !response.ok) throw new Error((await readApiResponse(response)).error || 'Не удалось сохранить журнал')
+      ? await api.journal.create(changed)
+      : updated ? await api.journal.update(updated.id, updated) : null
+    if (response === null) return
   }
 
   const openEntry = entries.find((e) => e.id === openId) ?? null
@@ -66,8 +59,7 @@ export default function App() {
     if (!text.trim() || processing) return
     setProcessing(true)
     try {
-      const response = await fetch('/api/documents/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})})
-      const result = await readApiResponse(response)
+      const result = await api.documents.preview(text) as any
       const number = nextNumber(entriesRef.current)
       const issues: string[] = result.validation.errors
       const now = Date.now()
@@ -83,7 +75,7 @@ export default function App() {
   const reprocessOpen = () => {
     if (!openEntry || !text.trim() || processing) return
     setProcessing(true)
-    void fetch('/api/documents/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}).then(async r=>{const x=await readApiResponse(r);const issues:string[]=x.validation.errors;const updated:JournalEntry={...openEntry,source:text,draft:x.draft,validation:x.validation,status:issues.length?'error':'success',stage:issues.length?'requires_clarification':'ready_to_create',docNumber:undefined,demoDocumentId:undefined,issues,counterparty:x.validation.counterparty?.name||x.draft.counterparty.name||undefined,amount:x.draft.totalAmount?`${x.draft.totalAmount.toLocaleString('ru-RU')} руб.`:undefined,updatedAt:Date.now(),logs:[...openEntry.logs,{time:Date.now(),text:issues.length?'Повторная проверка: нужны уточнения':'Повторная проверка: черновик готов к подтверждению'}]};await persist(entriesRef.current.map(e=>e.id===updated.id?updated:e));setProcessing(false)}).catch(e=>{window.alert(e instanceof Error?e.message:'Ошибка обработки');setProcessing(false)})
+    void api.documents.preview(text).then(async (r)=>{const x=r as any;const issues:string[]=x.validation.errors;const updated:JournalEntry={...openEntry,source:text,draft:x.draft,validation:x.validation,status:issues.length?'error':'success',stage:issues.length?'requires_clarification':'ready_to_create',docNumber:undefined,demoDocumentId:undefined,issues,counterparty:x.validation.counterparty?.name||x.draft.counterparty.name||undefined,amount:x.draft.totalAmount?`${x.draft.totalAmount.toLocaleString('ru-RU')} руб.`:undefined,updatedAt:Date.now(),logs:[...openEntry.logs,{time:Date.now(),text:issues.length?'Повторная проверка: нужны уточнения':'Повторная проверка: черновик готов к подтверждению'}]};await persist(entriesRef.current.map(e=>e.id===updated.id?updated:e));setProcessing(false)}).catch(e=>{window.alert(e instanceof Error?e.message:'Ошибка обработки');setProcessing(false)})
   }
 
   /* ---------- Действия с запросом ---------- */
@@ -108,15 +100,14 @@ export default function App() {
   }
 
   const handleDelete = (id: string) => {
-    void fetch('/api/journal/'+id,{method:'DELETE'}); void persist(entriesRef.current.filter((e) => e.id !== id))
+    void api.journal.remove(id); void persist(entriesRef.current.filter((e) => e.id !== id))
     if (openId === id) setOpenId(null)
   }
 
   const createOpen = async () => {
     if (!openEntry?.draft || openEntry.docNumber || openEntry.stage !== 'ready_to_create') return
     try {
-      const r = await fetch('/api/documents/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:openEntry.id,draft:openEntry.draft})})
-      const x = await readApiResponse(r)
+      const x = await api.documents.create(openEntry.id, openEntry.draft) as any
       const updated:JournalEntry={...openEntry,status:'success',stage:'created',docNumber:x.docNumber,demoDocumentId:x.id,updatedAt:Date.now(),logs:[...openEntry.logs,{time:Date.now(),text:`Демо-документ «Поступление товаров и услуг» создан, номер ${x.docNumber}`}]}
       await persist(entriesRef.current.map(e=>e.id===updated.id?updated:e))
     } catch (e) { window.alert(e instanceof Error ? e.message : 'Ошибка создания документа') }
@@ -154,7 +145,7 @@ export default function App() {
   }
 
   if(authLoading)return <div className="flex min-h-screen items-center justify-center text-slate-500">Загрузка…</div>
-  if(!user)return <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4"><form onSubmit={async e=>{e.preventDefault();setAuthError('');const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:loginEmail,password:loginPassword})});const x=await r.json();if(!r.ok)setAuthError(x.error);else setUser(x.user)}} className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200"><div className="mb-6 text-center"><Sparkles className="mx-auto mb-3 h-8 w-8 text-blue-600"/><h1 className="text-xl font-semibold">Вход в AI-Ассистент 1С</h1><p className="mt-1 text-sm text-slate-500">Введите данные сотрудника</p></div>{authError&&<p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{authError}</p>}<input required type="email" placeholder="Email" value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} className="mb-3 w-full rounded-lg border border-slate-200 px-3 py-2.5"/><input required type="password" placeholder="Пароль" value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} className="mb-5 w-full rounded-lg border border-slate-200 px-3 py-2.5"/><button className="w-full rounded-lg bg-blue-600 py-2.5 font-medium text-white hover:bg-blue-700">Войти</button></form></div>
+  if(!user)return <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4"><form onSubmit={async e=>{e.preventDefault();setAuthError('');try{const x=await api.auth.login(loginEmail,loginPassword);setUser(x.user as any)}catch(e){setAuthError(e instanceof Error?e.message:'Ошибка входа')}}} className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200"><div className="mb-6 text-center"><Sparkles className="mx-auto mb-3 h-8 w-8 text-blue-600"/><h1 className="text-xl font-semibold">Вход в AI-Ассистент 1С</h1><p className="mt-1 text-sm text-slate-500">Введите данные сотрудника</p></div>{authError&&<p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{authError}</p>}<input required type="email" placeholder="Email" value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} className="mb-3 w-full rounded-lg border border-slate-200 px-3 py-2.5"/><input required type="password" placeholder="Пароль" value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} className="mb-5 w-full rounded-lg border border-slate-200 px-3 py-2.5"/><button className="w-full rounded-lg bg-blue-600 py-2.5 font-medium text-white hover:bg-blue-700">Войти</button></form></div>
   return (
     <div
       className="min-h-screen bg-slate-50 text-slate-900 antialiased"
@@ -211,7 +202,7 @@ export default function App() {
                 <p className="text-sm font-medium leading-tight">{user.name}</p>
                 <p className="text-xs text-slate-500">{user.role === 'admin' ? 'Администратор' : 'Бухгалтер'}</p>
               </div>
-              <button title="Выйти" onClick={()=>{void fetch('/api/auth/logout',{method:'POST'});setUser(null)}} className="ml-2 text-slate-400 hover:text-slate-700"><LogOut className="h-4 w-4"/></button>
+              <button title="Выйти" onClick={()=>{void api.auth.logout().catch(()=>{});setUser(null)}} className="ml-2 text-slate-400 hover:text-slate-700"><LogOut className="h-4 w-4"/></button>
             </div>
           </div>
         </div>
