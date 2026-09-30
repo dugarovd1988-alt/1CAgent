@@ -1,0 +1,15 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3001"
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+    restart: unless-stopped
+    volumes:
+      - app-data:/app/data
+volumes:
+  app-data:
