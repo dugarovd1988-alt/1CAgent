@@ -213,6 +213,15 @@ app.post('/api/documents/create', auth, (req: Req, res) => {
   }
 })
 
+const distDir = path.resolve('dist')
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir))
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api/')) return next()
+    res.sendFile(path.join(distDir, 'index.html'))
+  })
+}
+
 if (process.argv.includes('--init-only')) process.exit(0)
 app.listen(Number(process.env.PORT || 3001), () => {
   console.log(`API listening on http://localhost:${process.env.PORT || 3001}`)
