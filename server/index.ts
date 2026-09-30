@@ -54,8 +54,9 @@ setInterval(() => {
   for (const [key, entry] of loginAttempts) if (entry.resetAt <= now()) loginAttempts.delete(key)
 }, LOGIN_WINDOW_MS).unref()
 
-// Администратор создаётся при первом старте. Если ADMIN_PASSWORD не задан,
-// генерируется случайный пароль и печатается в консоль один раз.
+// Администратор управляется переменной ADMIN_PASSWORD: при старте пароль из
+// окружения применяется к учётной записи (создаётся при первом запуске,
+// обновляется при смене значения). Без ADMIN_PASSWORD генерируется случайный.
 const email = process.env.ADMIN_EMAIL || 'admin@example.com'
 let initialPassword: string | null = null
 if (!process.env.ADMIN_PASSWORD) {
@@ -63,8 +64,11 @@ if (!process.env.ADMIN_PASSWORD) {
   logger.info('ADMIN_PASSWORD не задан: сгенерирован случайный пароль администратора')
 }
 const password = process.env.ADMIN_PASSWORD || initialPassword!
-if (!db.prepare('SELECT 1 FROM users WHERE email=?').get(email))
+const admin = db.prepare('SELECT * FROM users WHERE email=?').get(email) as any
+if (!admin)
   db.prepare('INSERT INTO users VALUES (?,?,?,?,?,?,?)').run(uid(), email, 'Администратор', 'admin', bcrypt.hashSync(password, 12), 0, now())
+else if (process.env.ADMIN_PASSWORD && !bcrypt.compareSync(password, admin.password_hash))
+  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(bcrypt.hashSync(password, 12), admin.id)
 
 type Req = express.Request & { user?: any }
 function auth(req: Req, res: express.Response, next: express.NextFunction) {
